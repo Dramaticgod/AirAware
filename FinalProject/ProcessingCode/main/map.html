@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Sensor Location Map</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/axios/0.21.1/axios.min.js"></script>
+    <style>
+        #map {
+            height: 100vh;
+            width: 100vw;
+        }
+
+        #controls {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 1000;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: flex-start;
+        }
+
+        #refreshButton {
+            width: 215px;
+            height: 50px;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        #refreshButton:hover {
+            background-color: #0056b3;
+        }
+
+        #legend {
+            padding: 10px;
+            border: 1px solid #ccc;
+            background-color: white;
+            border-radius: 8px;
+            font-size: 14px;
+            box-shadow: 0px 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin: 5px 0;
+        }
+
+        .legend-color {
+            width: 15px;
+            height: 15px;
+            margin-right: 10px;
+            border-radius: 50%;
+        }
+
+        .red {
+            background-color: red;
+        }
+
+        .blue {
+            background-color: blue;
+        }
+
+        .green {
+            background-color: green;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="controls">
+        <button id="refreshButton" onclick="updateSensorData()">Refresh Map</button>
+        <div id="legend">
+            <div><strong>Legend:</strong></div>
+            <div class="legend-item">
+                <div class="legend-color red"></div> High Dust Levels (Red)
+            </div>
+            <div class="legend-item">
+                <div class="legend-color blue"></div> Moderate Dust Levels (Blue)
+            </div>
+            <div class="legend-item">
+                <div class="legend-color green"></div> Low Dust Levels (Green)
+            </div>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <script>
+        var map = L.map('map').setView([0, 0], 2);
+
+        // Add OpenStreetMap tiles
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 25,
+            attribution: '© OpenStreetMap contributors'
+        }).addTo(map);
+
+        // Function to fetch and update sensor data
+        function updateSensorData() {
+            console.log("Reloading JSON and updating map...");
+            fetch("./sensorData.json")
+                .then(response => response.json())
+                .then(data => {
+                    if (!Array.isArray(data) || data.length === 0) {
+                        alert("No data found in sensorData.json!");
+                        return;
+                    }
+
+                    // Clear existing markers and circles
+                    map.eachLayer(layer => {
+                        if (layer instanceof L.Marker || layer instanceof L.Circle) {
+                            map.removeLayer(layer);
+                        }
+                    });
+
+                    // Set the map view to the last recorded location
+                    const lastReading = data[data.length - 1];
+                    map.setView([lastReading.latitude, lastReading.longitude], 19);
+
+                    // Add a marker for the last recorded location
+                    L.marker([lastReading.latitude, lastReading.longitude]).addTo(map)
+                        .bindPopup(`
+                            <div style="font-size: 14px; line-height: 1.5;">
+                                <b>Current Location</b><br>
+                                <b>User:</b> ${lastReading.user}<br>
+                                <b>Date:</b> ${lastReading.year}-${lastReading.month}-${lastReading.day}<br>
+                                <b>Time:</b> ${lastReading.hour}:${lastReading.minute}:${lastReading.second}<br>
+                                <b>Dust Level:</b> ${lastReading.dust} µg/m³<br>
+                                <b>TVOC:</b> ${lastReading.tvoc} ppb<br>
+                                <b>CO2 Level:</b> ${lastReading.co2} ppm<br>
+                                <b>Latitude:</b> ${lastReading.latitude.toFixed(4)}<br>
+                                <b>Longitude:</b> ${lastReading.longitude.toFixed(4)}
+                            </div>
+                        `).openPopup();
+
+                    const dustThresholdHigh = 120; // Adjusted for new thresholds
+                    const dustThresholdModerate = 90; // Adjusted for new thresholds
+
+                    data.forEach(reading => {
+                        const { latitude, longitude, user, dust, tvoc, co2, year, month, day, hour, minute, second } = reading;
+
+                        // Determine circle color based on dust level
+                        let circleColor = 'green';
+                        if (dust > dustThresholdHigh) {
+                            circleColor = 'red';
+                        } else if (dust >= dustThresholdModerate && dust <= dustThresholdHigh) {
+                            circleColor = 'blue';
+                        }
+
+                        // Add a circle to the map
+                        L.circle([latitude, longitude], {
+                            color: circleColor,
+                            fillColor: circleColor,
+                            fillOpacity: 0.3,
+                            radius: 10
+                        }).addTo(map).bindPopup(`
+                            <div style="font-size: 14px; line-height: 1.5;">
+                                <b>Sensor Location</b><br>
+                                <b>User:</b> ${user}<br>
+                                <b>Date:</b> ${year}-${month}-${day}<br>
+                                <b>Time:</b> ${hour}:${minute}:${second}<br>
+                                <b>Dust Level:</b> ${dust} µg/m³<br>
+                                <b>TVOC:</b> ${tvoc} ppb<br>
+                                <b>CO2 Level:</b> ${co2} ppm<br>
+                                <b>Latitude:</b> ${latitude.toFixed(4)}<br>
+                                <b>Longitude:</b> ${longitude.toFixed(4)}
+                            </div>
+                        `);
+                    });
+                })
+                .catch(error => {
+                    console.error("Error loading sensorData.json:", error);
+                    alert("Failed to load data from sensorData.json.");
+                });
+        }
+
+        // Initial load
+        updateSensorData();
+    </script>
+</body>
+
+</html>
